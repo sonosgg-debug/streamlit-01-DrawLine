@@ -8,4 +8,5 @@ openpyxl
 requests
 lxml
 beautifulsoup4
+finance-datareader
 

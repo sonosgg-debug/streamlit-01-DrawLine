@@ -1,38 +1,44 @@
 import pandas as pd
 import requests
 import io
+import FinanceDataReader as fdr
 
 def get_krx_tickers(market='ALL'):
     """
-    KIND(한국거래소)에서 상장 종목 목록을 다운로드하여 야후 파이낸스 티커 포맷으로 변환합니다.
-    market: 'ALL' (전체), 'KOSPI' (코스피), 'KOSDAQ' (코스닥)
+    FinanceDataReader 및 위키피디아에서 상장 종목 목록을 다운로드하여 야후 파이낸스 티커 포맷으로 변환합니다.
+    market: 'ALL' (전체), 'KOSPI' (코스피), 'KOSDAQ' (코스닥), 'S&P 500', 'NASDAQ 100'
     """
-    url = "https://kind.krx.co.kr/corpgeneral/corpList.do?method=download"
     tickers_list = []
     
-    # 1. KOSPI (stockMkt)
+    # 1. KOSPI
     if market in ['ALL', 'KOSPI']:
         try:
-            # KIND에서 코스피 종목 다운로드
-            response = requests.get(url + "&marketType=stockMkt")
-            df_kospi = pd.read_html(io.StringIO(response.text))[0]
-            df_kospi['종목코드'] = df_kospi['종목코드'].astype(str).str.zfill(6)
-            df_kospi['ticker'] = df_kospi['종목코드'] + ".KS"
-            df_kospi['시장'] = 'KOSPI'
-            tickers_list.append(df_kospi[['회사명', 'ticker', '시장']])
+            df_kospi = fdr.StockListing('KOSPI')
+            if not df_kospi.empty:
+                code_col = [col for col in df_kospi.columns if col.lower() == 'code']
+                name_col = [col for col in df_kospi.columns if col.lower() == 'name']
+                if code_col and name_col:
+                    df_result = pd.DataFrame()
+                    df_result['회사명'] = df_kospi[name_col[0]]
+                    df_result['ticker'] = df_kospi[code_col[0]].astype(str).str.zfill(6) + ".KS"
+                    df_result['시장'] = 'KOSPI'
+                    tickers_list.append(df_result)
         except Exception as e:
             print(f"KOSPI 종목 수집 실패: {e}")
             
-    # 2. KOSDAQ (kosdaqMkt)
+    # 2. KOSDAQ
     if market in ['ALL', 'KOSDAQ']:
         try:
-            # KIND에서 코스닥 종목 다운로드
-            response = requests.get(url + "&marketType=kosdaqMkt")
-            df_kosdaq = pd.read_html(io.StringIO(response.text))[0]
-            df_kosdaq['종목코드'] = df_kosdaq['종목코드'].astype(str).str.zfill(6)
-            df_kosdaq['ticker'] = df_kosdaq['종목코드'] + ".KQ"
-            df_kosdaq['시장'] = 'KOSDAQ'
-            tickers_list.append(df_kosdaq[['회사명', 'ticker', '시장']])
+            df_kosdaq = fdr.StockListing('KOSDAQ')
+            if not df_kosdaq.empty:
+                code_col = [col for col in df_kosdaq.columns if col.lower() == 'code']
+                name_col = [col for col in df_kosdaq.columns if col.lower() == 'name']
+                if code_col and name_col:
+                    df_result = pd.DataFrame()
+                    df_result['회사명'] = df_kosdaq[name_col[0]]
+                    df_result['ticker'] = df_kosdaq[code_col[0]].astype(str).str.zfill(6) + ".KQ"
+                    df_result['시장'] = 'KOSDAQ'
+                    tickers_list.append(df_result)
         except Exception as e:
             print(f"KOSDAQ 종목 수집 실패: {e}")
             
