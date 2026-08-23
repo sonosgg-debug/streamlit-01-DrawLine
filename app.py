@@ -49,7 +49,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-st.markdown('<div class="main-title">📈 David Ryan "Just Draw the Line" 스크리너</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">David Ryan "Just Draw the Line" 스크리너</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-title">한국 및 미국 주식시장(KOSPI, KOSDAQ, S&P 500, NASDAQ 100) 종목 중 추세 돌파 및 거래량 동반 종목 발굴 프로그램</div>', unsafe_allow_html=True)
 
 
