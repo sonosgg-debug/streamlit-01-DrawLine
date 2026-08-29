@@ -468,7 +468,7 @@ if st.session_state.screened_df is not None:
                         go.Scatter(
                             x=recent_dates,
                             y=trendline,
-                            line=dict(color='#202124', width=3, dash='dash'),
+                            line=dict(color='#FFFFFF', width=3, dash='dash'),
                             name="하향 추세선 (Downtrend Resistance Line)"
                         ),
                         row=1, col=1
