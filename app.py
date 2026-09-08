@@ -27,15 +27,17 @@ st.set_page_config(
 st.markdown("""
 <style>
     .main-title {
-        font-size: 2.2rem;
+        font-size: 2.1rem;
         font-weight: 700;
         color: #8AB4F8; /* 어두운 바탕에서도 잘 보이고 고급스러운 연파랑색 */
         margin-bottom: 0.2rem;
+        text-align: center;
     }
     .sub-title {
-        font-size: 1rem;
+        font-size: 0.92rem;
         color: #BDC1C6; /* 밝은 회색으로 가독성 향상 */
         margin-bottom: 2rem;
+        text-align: center;
     }
     .metric-card {
         background-color: #202124; /* 검정색 계열의 배경 적용 */
@@ -45,12 +47,31 @@ st.markdown("""
         border-left: 5px solid #8AB4F8; /* 하늘색 테두리 포인트 */
         margin-bottom: 10px;
     }
+    /* 안내문(Alert) 박스 스타일: 폰트 및 이모지 아이콘 크기 축소 */
+    .stAlert {
+        padding: 0.5rem 0.85rem !important;
+    }
+    .stAlert [data-testid="stAlertDynamicIcon"],
+    .stAlert [data-testid="stAlertDynamicIcon"] * {
+        font-size: 1.05rem !important;
+        width: 1.05rem !important;
+        height: 1.05rem !important;
+        line-height: 1 !important;
+    }
+    .stAlert svg {
+        width: 1.05rem !important;
+        height: 1.05rem !important;
+    }
+    .stAlert [data-testid="stMarkdownContainer"] p,
+    .stAlert [data-testid="stMarkdownContainer"] span {
+        font-size: 0.88rem !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 
 st.markdown('<div class="main-title">David Ryan "Just Draw the Line" 스크리너</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">한국 및 미국 주식시장(KOSPI, KOSDAQ, S&P 500, NASDAQ 100) 종목 중 추세 돌파 및 거래량 동반 종목 발굴 프로그램</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">한국 및 미국 주식시장의 종목 중 추세 돌파 및 거래량 동반 종목 발굴 프로그램</div>', unsafe_allow_html=True)
 
 
 # 기법 소개
