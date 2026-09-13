@@ -66,6 +66,12 @@ st.markdown("""
     .stAlert [data-testid="stMarkdownContainer"] span {
         font-size: 0.88rem !important;
     }
+    /* 엑셀 다운로드 버튼 폰트 크기 2pt 축소 */
+    .stDownloadButton button,
+    .stDownloadButton button p,
+    .stDownloadButton button span {
+        font-size: calc(0.875rem - 2pt) !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -272,7 +278,7 @@ if st.session_state.screened_df is not None:
     if st.session_state.screened_df.empty:
         st.warning("조건에 부합하는 종목이 발견되지 않았습니다. 분석 기간을 늘리거나 거래량 배수를 낮춰 보세요.")
     else:
-        st.markdown(f"#### 포착된 종목 리스트 (총 {len(st.session_state.screened_df)}개)")
+        st.markdown(f'#### <span style="color: #8AB4F8;">스크리닝 결과 (총 {len(st.session_state.screened_df)}개 종목)</span>', unsafe_allow_html=True)
         
         # 소수점 포맷팅
         df_format = st.session_state.screened_df.copy()
@@ -290,8 +296,6 @@ if st.session_state.screened_df is not None:
 
         
         # --- 엑셀 저장 및 다운로드 기능 ---
-        st.markdown("### 📥 데이터 익스포트")
-        
         # 메모리 버퍼 생성 후 pandas excel 쓰기
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -397,7 +401,7 @@ if st.session_state.screened_df is not None:
         excel_filename = f"JustDrawLine-{market_code}-{today_str}.xlsx"
         
         st.download_button(
-            label="📥 스크리닝 결과 엑셀(.xlsx) 파일 다운로드",
+            label="📥 엑셀 파일 다운로드",
             data=excel_data,
             file_name=excel_filename,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -407,7 +411,7 @@ if st.session_state.screened_df is not None:
         
         # --- 개별 종목 차트 시각화 영역 ---
         st.markdown("---")
-        st.markdown("### 📊 종목별 추세선 분석 차트")
+        st.markdown('#### <span style="color: #8AB4F8;">종목별 추세선 분석 차트</span>', unsafe_allow_html=True)
         
         # 사용자가 차트로 확인해볼 종목 선택
         selected_stock_name = st.selectbox(
