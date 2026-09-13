@@ -66,7 +66,11 @@ st.markdown("""
     .stAlert [data-testid="stMarkdownContainer"] span {
         font-size: 0.88rem !important;
     }
-    /* 엑셀 다운로드 버튼 폰트 크기 2pt 축소 */
+    /* 엑셀 다운로드 버튼 스타일: 폰트 2pt 축소 및 우측 정렬 */
+    .stDownloadButton {
+        display: flex;
+        justify-content: flex-end;
+    }
     .stDownloadButton button,
     .stDownloadButton button p,
     .stDownloadButton button span {
@@ -278,25 +282,7 @@ if st.session_state.screened_df is not None:
     if st.session_state.screened_df.empty:
         st.warning("조건에 부합하는 종목이 발견되지 않았습니다. 분석 기간을 늘리거나 거래량 배수를 낮춰 보세요.")
     else:
-        st.markdown(f'#### <span style="color: #8AB4F8;">스크리닝 결과 (총 {len(st.session_state.screened_df)}개 종목)</span>', unsafe_allow_html=True)
-        
-        # 소수점 포맷팅
-        df_format = st.session_state.screened_df.copy()
-        
-        df_format['현재가'] = df_format.apply(lambda r: fmt_curr(r['현재가'], r['티커']), axis=1)
-        df_format['50일 MA'] = df_format.apply(lambda r: fmt_curr(r['50일 MA'], r['티커']), axis=1)
-        df_format['150일 MA'] = df_format.apply(lambda r: fmt_curr(r['150일 MA'], r['티커']), axis=1)
-        df_format['200일 MA'] = df_format.apply(lambda r: fmt_curr(r['200일 MA'], r['티커']), axis=1)
-        df_format['52주 최고가'] = df_format.apply(lambda r: fmt_curr(r['52주 최고가'], r['티커']), axis=1)
-        df_format['52주 최저가'] = df_format.apply(lambda r: fmt_curr(r['52주 최저가'], r['티커']), axis=1)
-        df_format['거래량 비율'] = df_format['거래량 비율'].map('{:.2f}배'.format)
-
-        
-        st.dataframe(df_format, use_container_width=True)
-
-        
-        # --- 엑셀 저장 및 다운로드 기능 ---
-        # 메모리 버퍼 생성 후 pandas excel 쓰기
+        # --- 엑셀 저장용 데이터 사전 가공 및 생성 ---
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             # 엑셀 내보내기용 별도 데이터프레임 가공 (raw_screened_df 기반)
@@ -381,12 +367,8 @@ if st.session_state.screened_df is not None:
                 # J열 (돌파 감지일 - 10번째 열) -> 가운데 정렬 적용
                 cell_j = worksheet.cell(row=row_idx, column=10)
                 cell_j.alignment = Alignment(horizontal='center')
-
-
                 
         excel_data = output.getvalue()
-
-
         
         # 파일명 동적 생성 (JustDrawLine-[MarketCode]-YYYY-MM-DD.xlsx)
         market_code_map = {
@@ -399,15 +381,32 @@ if st.session_state.screened_df is not None:
         market_code = market_code_map.get(st.session_state.market_type_used, "ALL")
         today_str = datetime.date.today().strftime('%Y-%m-%d')
         excel_filename = f"JustDrawLine-{market_code}-{today_str}.xlsx"
-        
-        st.download_button(
-            label="📥 엑셀 파일 다운로드",
-            data=excel_data,
-            file_name=excel_filename,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=False
-        )
 
+        # 타이틀과 엑셀 다운로드 버튼을 같은 라인에 배치 (다운로드 버튼은 오른쪽 끝에 정렬)
+        col_title, col_btn = st.columns([3, 1], vertical_alignment="bottom")
+        with col_title:
+            st.markdown(f'#### <span style="color: #8AB4F8;">스크리닝 결과 (총 {len(st.session_state.screened_df)}개 종목)</span>', unsafe_allow_html=True)
+        with col_btn:
+            st.download_button(
+                label="📥 엑셀 파일 다운로드",
+                data=excel_data,
+                file_name=excel_filename,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=False
+            )
+        
+        # 소수점 포맷팅
+        df_format = st.session_state.screened_df.copy()
+        
+        df_format['현재가'] = df_format.apply(lambda r: fmt_curr(r['현재가'], r['티커']), axis=1)
+        df_format['50일 MA'] = df_format.apply(lambda r: fmt_curr(r['50일 MA'], r['티커']), axis=1)
+        df_format['150일 MA'] = df_format.apply(lambda r: fmt_curr(r['150일 MA'], r['티커']), axis=1)
+        df_format['200일 MA'] = df_format.apply(lambda r: fmt_curr(r['200일 MA'], r['티커']), axis=1)
+        df_format['52주 최고가'] = df_format.apply(lambda r: fmt_curr(r['52주 최고가'], r['티커']), axis=1)
+        df_format['52주 최저가'] = df_format.apply(lambda r: fmt_curr(r['52주 최저가'], r['티커']), axis=1)
+        df_format['거래량 비율'] = df_format['거래량 비율'].map('{:.2f}배'.format)
+
+        st.dataframe(df_format, use_container_width=True)
         
         # --- 개별 종목 차트 시각화 영역 ---
         st.markdown("---")
