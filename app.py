@@ -658,13 +658,14 @@ if st.session_state.screened_df is not None:
                 fig.update_yaxes(tickformat=tick_format, row=1, col=1)
                 fig.update_yaxes(tickformat=",.0f", row=2, col=1)
                 
-                # 주말 공백 제거 (주식 시장 휴장일 제외하여 캔들스틱 간격 유지)
-                # KOSPI/KOSDAQ은 평일에만 열리므로 날짜 축에서 주말을 제외
-                fig.update_xaxes(
-                    rangebreaks=[
-                        dict(bounds=["sat", "mon"]), # 토요일부터 월요일 아침까지 비활성화
-                    ]
-                )
+                # 주말 및 공휴일 공백 제거 (5일 주기 끊김 및 0값 방지)
+                dt_all = pd.date_range(start=df_chart.index[0], end=df_chart.index[-1], freq='B')
+                existing_dates = set(pd.to_datetime(df_chart.index).normalize())
+                holidays = [d.strftime('%Y-%m-%d') for d in dt_all if d.normalize() not in existing_dates]
+                rbreaks = [dict(bounds=["sat", "mon"])]
+                if holidays:
+                    rbreaks.append(dict(values=holidays))
+                fig.update_xaxes(rangebreaks=rbreaks)
                 
                 st.plotly_chart(fig, use_container_width=True)
                 
