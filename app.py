@@ -30,11 +30,12 @@ st.set_page_config(
 st.markdown("""
 <style>
     .main-title {
-        font-size: 1.9rem;
-        font-weight: 800;
-        color: #8AB4F8; /* 어두운 바탕에서도 잘 보이고 고급스러운 연파랑색 */
+        font-size: 1.9rem !important;
+        font-weight: 800 !important;
+        color: #8AB4F8 !important;
+        -webkit-text-fill-color: #8AB4F8 !important;
         margin-bottom: 0.2rem;
-        text-align: center;
+        text-align: center !important;
     }
     .sub-title {
         font-size: 0.92rem;
