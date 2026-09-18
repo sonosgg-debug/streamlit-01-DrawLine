@@ -30,8 +30,8 @@ st.set_page_config(
 st.markdown("""
 <style>
     .main-title {
-        font-size: 2.1rem;
-        font-weight: 700;
+        font-size: 1.9rem;
+        font-weight: 800;
         color: #8AB4F8; /* 어두운 바탕에서도 잘 보이고 고급스러운 연파랑색 */
         margin-bottom: 0.2rem;
         text-align: center;
