@@ -158,6 +158,24 @@ st.markdown("""
         visibility: visible !important;
         font-size: 1.35rem !important;
     }
+
+    /* Primary Button Styling (39 DividendStock 테마 통일) */
+    .stButton button[kind="primary"],
+    .stButton > button[kind="primary"],
+    section[data-testid="stSidebar"] button[kind="primary"] {
+        background-color: #2563eb !important;
+        color: #ffffff !important;
+        border: none !important;
+        font-weight: 600 !important;
+        border-radius: 6px !important;
+        transition: all 0.2s ease !important;
+    }
+    .stButton button[kind="primary"]:hover,
+    .stButton > button[kind="primary"]:hover,
+    section[data-testid="stSidebar"] button[kind="primary"]:hover {
+        background-color: #1d4ed8 !important;
+        box-shadow: 0 0 10px rgba(37, 99, 235, 0.4) !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -247,7 +265,7 @@ if 'market_type_used' not in st.session_state:
     st.session_state.market_type_used = None
 
 # 스크리닝 시작 버튼
-start_screening = st.sidebar.button("🚀 스크리닝 시작", use_container_width=True)
+start_screening = st.sidebar.button("🔍 스크리닝 시작", type="primary", use_container_width=True)
 
 if start_screening:
     market_map = {
