@@ -29,8 +29,13 @@ st.set_page_config(
 # 커스텀 CSS로 UI 스타일링 (다크 테마 최적화 및 시인성 개선)
 st.markdown("""
 <style>
+    .main .block-container,
+    [data-testid="stMainBlockContainer"],
+    .block-container {
+        padding-top: 2.0rem !important;
+    }
     .main-title {
-        font-size: 1.9rem !important;
+        font-size: 2.0rem !important;
         font-weight: 800 !important;
         color: #8AB4F8 !important;
         -webkit-text-fill-color: #8AB4F8 !important;
@@ -704,3 +709,6 @@ if st.session_state.screened_df is not None:
 else:
     # 프로그램 최초 진입 시 메인 화면
     st.info("👈 왼쪽 사이드바에서 대상 시장 및 파라미터를 설정한 후 '스크리닝 시작' 버튼을 눌러주세요.")
+
+st.markdown("---")
+st.markdown("<div style='text-align: center; color: #64748b; font-size: 0.8rem; margin-top: 8px; margin-bottom: 24px; line-height: 1.6;'>⚠️ 본 서비스에서 제공하는 모든 정보는 투자 참고용이며, 투자의 최종 결정과 책임은 투자자 본인에게 있습니다.</div>", unsafe_allow_html=True)
