@@ -660,9 +660,15 @@ if st.session_state.screened_df is not None:
                 currency_symbol = '$' if is_us_stock else '원'
                 tick_format = ',.2f' if is_us_stock else ',.0f'
                 
-                # 레이아웃 정밀화
+                # 레이아웃 정밀화 (고대비 Tailwind Slate 표준 테마)
                 fig.update_layout(
-                    title=f"📈 {selected_stock_name} ({ticker}) 'Just Draw the Line' 분석 차트",
+                    template="plotly_dark",
+                    paper_bgcolor="#1E293B",
+                    plot_bgcolor="#0F172A",
+                    title=dict(
+                        text=f"<b>📈 {selected_stock_name} ({ticker}) 'Just Draw the Line' 분석 차트</b>",
+                        font=dict(color="#F8FAFC", size=16)
+                    ),
                     yaxis_title=f"주가 ({currency_symbol})",
                     yaxis2_title="거래량 (주)",
                     xaxis_rangeslider_visible=False,
@@ -673,14 +679,18 @@ if st.session_state.screened_df is not None:
                         orientation="h",
                         y=1.08,
                         xanchor="right",
-                        x=1
+                        x=1,
+                        bgcolor="rgba(30, 41, 59, 0.85)",
+                        bordercolor="#334155",
+                        borderwidth=1,
+                        font=dict(color="#F8FAFC", size=11)
                     ),
-
                     hovermode="x unified"
                 )
                 
-                fig.update_yaxes(tickformat=tick_format, row=1, col=1)
-                fig.update_yaxes(tickformat=",.0f", row=2, col=1)
+                fig.update_xaxes(gridcolor="#334155", linecolor="#475569", tickfont=dict(color="#cbd5e1"))
+                fig.update_yaxes(tickformat=tick_format, row=1, col=1, gridcolor="#334155", linecolor="#475569", tickfont=dict(color="#cbd5e1"))
+                fig.update_yaxes(tickformat=",.0f", row=2, col=1, gridcolor="#334155", linecolor="#475569", tickfont=dict(color="#cbd5e1"))
                 
                 # 주말 및 공휴일 공백 제거 (5일 주기 끊김 및 0값 방지)
                 dt_all = pd.date_range(start=df_chart.index[0], end=df_chart.index[-1], freq='B')
