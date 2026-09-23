@@ -243,58 +243,6 @@ with st.expander("ℹ️ 데이비드 라이언의 'Just Draw the Line' 투자 �
        * 돌파 시점의 거래량이 **최근 20일 평균 거래량 대비 최소 1.5배(150%) 이상** 급증하여 기관의 매수세 확인.
     """)
 
-# 사이드바 설정 영역
-st.sidebar.header("⚙️ 스크리닝 조건 설정")
-
-market_choice = st.sidebar.selectbox(
-    "대상 시장 선택",
-    ["코스피 (KOSPI)", "코스닥 (KOSDAQ)", "전체 시장 (KOSPI + KOSDAQ)", "미국 S&P 500 (US)", "미국 NASDAQ 100 (US)"],
-    index=0
-)
-
-lookback_period = st.sidebar.slider(
-    "추세선 분석 기간 (영업일)",
-    min_value=20,
-    max_value=90,
-    value=40,
-    step=5,
-    help="최근 고점을 연결하여 추세선을 그릴 분석 윈도우 기간입니다."
-)
-
-vol_ratio_thresh = st.sidebar.slider(
-    "최소 돌파 거래량 배수",
-    min_value=1.0,
-    max_value=3.0,
-    value=1.5,
-    step=0.1,
-    help="돌파 당일 거래량이 직전 20일 평균 거래량 대비 몇 배 이상이어야 하는지 결정합니다. (예: 1.5 = 150%)"
-)
-
-chunk_size = st.sidebar.number_input(
-    "데이터 일괄 요청 크기 (Chunk)",
-    min_value=10,
-    max_value=100,
-    value=50,
-    step=10,
-    help="yfinance API로 한 번에 다운로드할 종목 개수입니다. 너무 크게 설정하면 API 에러가 발생할 수 있습니다."
-)
-
-apply_trend_template = st.sidebar.toggle(
-    "장기 상승 추세 조건(Trend Template) 필터",
-    value=True,
-    help="미너비니의 상승 2단계 정배열 조건을 활성화합니다. 활성화하면 매우 엄격한 상승 추세 종목만 발굴됩니다."
-)
-
-breakout_window = st.sidebar.slider(
-    "최근 돌파 허용 기간 (영업일)",
-    min_value=1,
-    max_value=10,
-    value=3,
-    step=1,
-    help="최근 N영업일 이내에 최초 돌파가 일어난 후 추세선 위를 지키고 있는 종목을 허용합니다."
-)
-
-
 # 세션 상태 초기화 (스크리닝 결과 보존용)
 if 'screened_df' not in st.session_state:
     st.session_state.screened_df = None
@@ -303,8 +251,63 @@ if 'last_run_time' not in st.session_state:
 if 'market_type_used' not in st.session_state:
     st.session_state.market_type_used = None
 
-# 스크리닝 시작 버튼
-start_screening = st.sidebar.button("🔍 스크리닝 시작", type="primary", use_container_width=True)
+# 사이드바 설정 영역
+with st.sidebar:
+    st.header("⚙️ 스크리닝 조건 설정")
+
+    market_choice = st.selectbox(
+        "대상 시장 선택",
+        ["코스피 (KOSPI)", "코스닥 (KOSDAQ)", "전체 시장 (KOSPI + KOSDAQ)", "미국 S&P 500 (US)", "미국 NASDAQ 100 (US)"],
+        index=0
+    )
+
+    st.markdown("---")
+    st.subheader("🎯 스크리닝 필터 설정")
+
+    lookback_period = st.slider(
+        "추세선 분석 기간 (영업일)",
+        min_value=20,
+        max_value=90,
+        value=40,
+        step=5,
+        help="최근 고점을 연결하여 추세선을 그릴 분석 윈도우 기간입니다."
+    )
+
+    vol_ratio_thresh = st.slider(
+        "최소 돌파 거래량 배수",
+        min_value=1.0,
+        max_value=3.0,
+        value=1.5,
+        step=0.1,
+        help="돌파 당일 거래량이 직전 20일 평균 거래량 대비 몇 배 이상이어야 하는지 결정합니다. (예: 1.5 = 150%)"
+    )
+
+    chunk_size = st.number_input(
+        "데이터 일괄 요청 크기 (Chunk)",
+        min_value=10,
+        max_value=100,
+        value=50,
+        step=10,
+        help="yfinance API로 한 번에 다운로드할 종목 개수입니다. 너무 크게 설정하면 API 에러가 발생할 수 있습니다."
+    )
+
+    apply_trend_template = st.toggle(
+        "장기 상승 추세 조건(Trend Template) 필터",
+        value=True,
+        help="미너비니의 상승 2단계 정배열 조건을 활성화합니다. 활성화하면 매우 엄격한 상승 추세 종목만 발굴됩니다."
+    )
+
+    breakout_window = st.slider(
+        "최근 돌파 허용 기간 (영업일)",
+        min_value=1,
+        max_value=10,
+        value=3,
+        step=1,
+        help="최근 N영업일 이내에 최초 돌파가 일어난 후 추세선 위를 지키고 있는 종목을 허용합니다."
+    )
+
+    # 스크리닝 시작 버튼
+    start_screening = st.button("🔍 스크리닝 시작", type="primary", use_container_width=True)
 
 if start_screening:
     market_map = {
