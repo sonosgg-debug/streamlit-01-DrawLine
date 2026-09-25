@@ -13,6 +13,21 @@ from plotly.subplots import make_subplots
 from tickers import get_krx_tickers
 from screener import run_screener, fit_upper_trendline, screen_single_stock
 
+STANDARD_CHART_THEME = {
+    'paper_bgcolor': '#1E293B',    # Tailwind Slate-800 (외곽 카드 배경)
+    'plot_bgcolor': '#0F172A',     # Tailwind Slate-900 (내부 딥 블랙 플롯)
+    'text_main': '#F8FAFC',        # 타이틀/헤더 텍스트 (순백색)
+    'text_body': '#E2E8F0',        # 본문 및 축 라벨 (부드러운 화이트)
+    'text_muted': '#CBD5E1',       # 축 눈금 수치 텍스트 (Slate-300)
+    'grid_color': '#334155',       # 그리드 격자선 (Slate-700)
+    'border_color': '#475569',     # 축 기준선 (Slate-600)
+    'legend_bg': 'rgba(30, 41, 59, 0.85)',
+    'legend_border': '#334155',
+    'hover_bg': 'rgba(15, 23, 42, 0.9)',
+    'hover_border': '#334155'
+}
+
+
 def fmt_curr(val, ticker):
     if ticker.endswith('.KS') or ticker.endswith('.KQ'):
         return f"{val:,.0f}원"
@@ -29,6 +44,11 @@ st.set_page_config(
 # 커스텀 CSS로 UI 스타일링 (다크 테마 최적화 및 시인성 개선)
 st.markdown("""
 <style>
+    /* Streamlit 고정 상단 헤더 배경 투명화 */
+    header[data-testid="stHeader"] {
+        background: transparent !important;
+    }
+
     .main .block-container,
     [data-testid="stMainBlockContainer"],
     .block-container {
@@ -287,7 +307,7 @@ with st.sidebar:
     )
 
     st.markdown("<hr style='border: 0; height: 1px; background-color: #334155; margin: 16px 0;'>", unsafe_allow_html=True)
-    st.subheader("🎯 스크리닝 필터 설정")
+    st.markdown("<div style='font-size: 0.95rem; font-weight: 700; color: #e2e8f0; margin-bottom: 6px;'>🎯 스크리닝 필터 설정</div>", unsafe_allow_html=True)
 
     lookback_period = st.slider(
         "추세선 분석 기간 (영업일)",
@@ -730,8 +750,8 @@ if st.session_state.screened_df is not None:
                 # 레이아웃 정밀화 (고대비 Tailwind Slate 표준 테마)
                 fig.update_layout(
                     template="plotly_dark",
-                    paper_bgcolor="#1E293B",
-                    plot_bgcolor="#0F172A",
+                    paper_bgcolor=STANDARD_CHART_THEME['paper_bgcolor'],
+                    plot_bgcolor=STANDARD_CHART_THEME['plot_bgcolor'],
                     title=dict(
                         text=f"<b>📈 {selected_stock_name} ({ticker}) 'Just Draw the Line' 분석 차트</b>",
                         font=dict(color="#F8FAFC", size=16)

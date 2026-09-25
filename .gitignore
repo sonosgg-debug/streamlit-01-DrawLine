@@ -30,6 +30,7 @@ env/
 
 # Streamlit
 .streamlit/secrets.toml
+!.streamlit/config.toml
 
 # OS files
 .DS_Store
