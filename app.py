@@ -40,6 +40,7 @@ def fmt_curr(val, ticker):
 # 페이지 설정
 st.set_page_config(
     page_title="David Ryan's Just Draw the Line Stock Screener",
+    page_icon="🏛️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
