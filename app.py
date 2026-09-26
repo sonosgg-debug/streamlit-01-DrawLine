@@ -16,8 +16,24 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 import time
-from tickers import get_krx_tickers
-from screener import run_screening_task, run_screener, fit_upper_trendline, screen_single_stock
+import importlib
+import sys
+import os
+
+# Streamlit Cloud 환경에서 로컬 모듈 캐시 갱신 보장 및 상세 오류 트래킹
+try:
+    import tickers
+    importlib.reload(tickers)
+    from tickers import get_krx_tickers
+
+    import screener
+    importlib.reload(screener)
+    from screener import run_screening_task, run_screener, fit_upper_trendline, screen_single_stock
+except Exception as e:
+    import traceback
+    st.error(f"모듈 로드 중 오류가 발생했습니다: {e}")
+    st.code(traceback.format_exc())
+    raise e
 
 STANDARD_CHART_THEME = {
     'paper_bgcolor': '#1E293B',    # Tailwind Slate-800 (외곽 카드 배경)
