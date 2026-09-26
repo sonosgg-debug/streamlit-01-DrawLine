@@ -363,6 +363,9 @@ with st.sidebar:
         )
         min_marcap_val = marcap_options[marcap_label]
 
+    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+    start_screening = st.button("🔍 스크리닝 시작", type="primary", use_container_width=True)
+
     st.markdown("<hr style='border: 0; height: 1px; background-color: #334155; margin: 16px 0;'>", unsafe_allow_html=True)
     st.markdown("<div style='font-size: 0.95rem; font-weight: 700; color: #e2e8f0; margin-bottom: 6px;'>🎯 스크리닝 필터 설정</div>", unsafe_allow_html=True)
 
@@ -397,16 +400,6 @@ with st.sidebar:
         value=3,
         step=1,
         help="최근 N영업일 이내에 최초 돌파가 일어난 후 추세선 위를 지키고 있는 종목을 허용합니다."
-    )
-
-    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-    # 스크리닝 시작 버튼
-    start_screening = st.button("🔍 스크리닝 시작", type="primary", use_container_width=True)
-
-    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
-    st.info(
-        "💡 **알림**: 멀티스레딩 엔진이 백그라운드에서 실시간 데이터를 수집 및 병렬 연산합니다. "
-        "일반적으로 15~30초 내에 전 종목 스크리닝이 완료됩니다."
     )
 
 if start_screening:
