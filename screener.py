@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 import yfinance as yf
+import FinanceDataReader as fdr
+import datetime
 from scipy.optimize import linprog
 from scipy.signal import find_peaks
 import concurrent.futures
@@ -152,9 +154,11 @@ def screen_single_stock(ticker, name, df, lookback_period=40, vol_ratio_thresh=1
         'trend_intercept': b
     }
 
-def run_screener(tickers_df, lookback_period=40, vol_ratio_thresh=1.5, chunk_size=50):
+def run_screener(tickers_df, lookback_period=40, vol_ratio_thresh=1.5, chunk_size=50, max_workers=20):
     """
-    전체 상장종목에 대해 yfinance 데이터를 수집하고 스크리닝을 수행합니다.
+    전체 상장종목에 대해 데이터를 수집하고 스크리닝을 수행합니다.
+    - 한국 주식(.KS, .KQ): FinanceDataReader 멀티스레드 병렬 다운로드 (네이버 증권 공식 데이터)
+    - 미국 주식: yfinance 멀티 다운로드
     """
     results = []
     tickers = tickers_df['ticker'].tolist()
@@ -166,52 +170,71 @@ def run_screener(tickers_df, lookback_period=40, vol_ratio_thresh=1.5, chunk_siz
     print(f"스크리닝 시작: 총 {total_tickers}개 종목, {len(chunks)}개 청크로 나누어 데이터 다운로드 진행")
     
     start_time = time.time()
+    start_date = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime('%Y-%m-%d')
     
     for idx, chunk in enumerate(chunks):
         print(f"청크 처리 중 [{idx+1}/{len(chunks)}] (종목수: {len(chunk)})...")
-        try:
-            # yfinance를 통해 멀티 티커 1년치 데이터 일괄 다운로드
-            data = yf.download(chunk, period="1y", group_by="ticker", progress=False)
-            
-            # 단일 종목 다운로드인 경우 구조 조정
-            if len(chunk) == 1:
-                ticker = chunk[0]
-                df_single = data
-                if not df_single.empty:
-                    # MultiIndex가 아니면 직접 처리
-                    res = screen_single_stock(ticker, name_map[ticker], df_single, lookback_period, vol_ratio_thresh)
-                    if res:
-                        results.append(res)
-                continue
-                
-            # 여러 종목 다운로드인 경우
-            for ticker in chunk:
+        kr_chunk = [t for t in chunk if t.endswith('.KS') or t.endswith('.KQ')]
+        us_chunk = [t for t in chunk if not (t.endswith('.KS') or t.endswith('.KQ'))]
+        
+        # 1. 한국 주식: FinanceDataReader 멀티스레드 병렬 수집
+        if kr_chunk:
+            def fetch_kr_stock(t):
+                code = t.split('.')[0]
                 try:
-                    if isinstance(data.columns, pd.MultiIndex):
-                        ticker_level = 'Ticker' if 'Ticker' in data.columns.names else 1
-                        tickers_in_data = data.columns.get_level_values(ticker_level).unique()
-                        if ticker not in tickers_in_data:
-                            continue
-                        df_single = data.xs(ticker, level=ticker_level, axis=1).dropna(subset=['Close', 'High', 'Low', 'Volume'])
-                    else:
-                        df_single = data.dropna(subset=['Close', 'High', 'Low', 'Volume'])
-                        
-                    if len(df_single) < 100:
-                        continue
-                        
+                    df = fdr.DataReader(code, start_date)
+                    if df is not None and not df.empty:
+                        df = df.dropna(subset=['Close', 'High', 'Low', 'Volume'])
+                        if df.index.tz is not None:
+                            df.index = df.index.tz_localize(None)
+                        return t, df
+                except Exception:
+                    pass
+                return t, None
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(kr_chunk), max_workers)) as executor:
+                fetched_kr = list(executor.map(fetch_kr_stock, kr_chunk))
+
+            for ticker, df_single in fetched_kr:
+                if df_single is None or len(df_single) < 200:
+                    continue
+                try:
                     res = screen_single_stock(ticker, name_map[ticker], df_single, lookback_period, vol_ratio_thresh)
                     if res:
                         results.append(res)
-                except Exception as e:
-                    # 특정 종목 오류 발생 시 건너뜀
+                except Exception:
                     continue
 
-                    
-        except Exception as e:
-            print(f"청크 다운로드 실패: {e}")
+        # 2. 미국 주식: yfinance 일괄 다운로드
+        if us_chunk:
+            try:
+                data = yf.download(us_chunk, period="2y", group_by="ticker", progress=False)
+                for ticker in us_chunk:
+                    try:
+                        if isinstance(data.columns, pd.MultiIndex):
+                            ticker_level = 'Ticker' if 'Ticker' in data.columns.names else 1
+                            tickers_in_data = data.columns.get_level_values(ticker_level).unique()
+                            if ticker not in tickers_in_data:
+                                continue
+                            df_single = data.xs(ticker, level=ticker_level, axis=1).dropna(subset=['Close', 'High', 'Low', 'Volume'])
+                        else:
+                            df_single = data.dropna(subset=['Close', 'High', 'Low', 'Volume'])
+                            
+                        if df_single.index.tz is not None:
+                            df_single.index = df_single.index.tz_localize(None)
+
+                        if len(df_single) < 200:
+                            continue
+                            
+                        res = screen_single_stock(ticker, name_map[ticker], df_single, lookback_period, vol_ratio_thresh)
+                        if res:
+                            results.append(res)
+                    except Exception:
+                        continue
+            except Exception as e:
+                print(f"미국 주식 청크 다운로드 실패: {e}")
             
-        # API 과부하 방지를 위한 짧은 딜레이
-        time.sleep(0.5)
+        time.sleep(0.1)
         
     print(f"스크리닝 완료! 소요 시간: {time.time() - start_time:.2f}초. 탐지된 종목 수: {len(results)}")
     return pd.DataFrame(results)

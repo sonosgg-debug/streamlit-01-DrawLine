@@ -1,10 +1,12 @@
 import socket
-socket.setdefaulttimeout(5.0)
+socket.setdefaulttimeout(15.0)
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
+import FinanceDataReader as fdr
+import concurrent.futures
 import datetime
 
 # 한국 표준시(KST) 타임존 (UTC+9)
@@ -395,32 +397,37 @@ if start_screening:
         chunks = [tickers[i:i + chunk_size] for i in range(0, total_tickers, chunk_size)]
         
         start_time = datetime.datetime.now()
-
+        start_date = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime('%Y-%m-%d')
         
         for idx, chunk in enumerate(chunks):
             status_text.text(f"데이터 다운로드 및 분석 중... [{idx+1}/{len(chunks)}] (진행률: {int((idx+1)/len(chunks)*100)}%)")
             progress_bar.progress((idx + 1) / len(chunks))
             
-            try:
-                # yfinance 멀티 다운로드
-                data = yf.download(chunk, period="2y", group_by="ticker", progress=False)
-
-                
-                for ticker in chunk:
+            kr_chunk = [t for t in chunk if t.endswith('.KS') or t.endswith('.KQ')]
+            us_chunk = [t for t in chunk if not (t.endswith('.KS') or t.endswith('.KQ'))]
+            
+            # 1. 한국 주식: FinanceDataReader 멀티스레드 병렬 수집 (네이버 증권 공식 시세)
+            if kr_chunk:
+                def fetch_kr_stock(t):
+                    code = t.split('.')[0]
                     try:
-                        if isinstance(data.columns, pd.MultiIndex):
-                            ticker_level = 'Ticker' if 'Ticker' in data.columns.names else 1
-                            tickers_in_data = data.columns.get_level_values(ticker_level).unique()
-                            if ticker not in tickers_in_data:
-                                continue
-                            df_single = data.xs(ticker, level=ticker_level, axis=1).dropna(subset=['Close', 'High', 'Low', 'Volume'])
-                        else:
-                            df_single = data.dropna(subset=['Close', 'High', 'Low', 'Volume'])
-                            
-                        if len(df_single) < 200:
-                            continue
-                            
-                        # 개별 종목 분석
+                        df = fdr.DataReader(code, start_date)
+                        if df is not None and not df.empty:
+                            df = df.dropna(subset=['Close', 'High', 'Low', 'Volume'])
+                            if df.index.tz is not None:
+                                df.index = df.index.tz_localize(None)
+                            return t, df
+                    except Exception:
+                        pass
+                    return t, None
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(kr_chunk), 20)) as executor:
+                    fetched_kr = list(executor.map(fetch_kr_stock, kr_chunk))
+
+                for ticker, df_single in fetched_kr:
+                    if df_single is None or len(df_single) < 200:
+                        continue
+                    try:
                         res = screen_single_stock(
                             ticker, 
                             name_map[ticker], 
@@ -432,12 +439,45 @@ if start_screening:
                         )
                         if res:
                             results.append(res)
-
                     except Exception:
                         continue
 
-            except Exception as e:
-                pass
+            # 2. 미국 주식: yfinance 일괄 다운로드
+            if us_chunk:
+                try:
+                    data = yf.download(us_chunk, period="2y", group_by="ticker", progress=False)
+                    for ticker in us_chunk:
+                        try:
+                            if isinstance(data.columns, pd.MultiIndex):
+                                ticker_level = 'Ticker' if 'Ticker' in data.columns.names else 1
+                                tickers_in_data = data.columns.get_level_values(ticker_level).unique()
+                                if ticker not in tickers_in_data:
+                                    continue
+                                df_single = data.xs(ticker, level=ticker_level, axis=1).dropna(subset=['Close', 'High', 'Low', 'Volume'])
+                            else:
+                                df_single = data.dropna(subset=['Close', 'High', 'Low', 'Volume'])
+                                
+                            if df_single.index.tz is not None:
+                                df_single.index = df_single.index.tz_localize(None)
+
+                            if len(df_single) < 200:
+                                continue
+                                
+                            res = screen_single_stock(
+                                ticker, 
+                                name_map[ticker], 
+                                df_single, 
+                                lookback_period, 
+                                vol_ratio_thresh,
+                                apply_trend_template=apply_trend_template,
+                                breakout_window=breakout_window
+                            )
+                            if res:
+                                results.append(res)
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
 
                 
         # 프로그레스 초기화
@@ -631,10 +671,19 @@ if st.session_state.screened_df is not None:
             
             with st.spinner(f"{selected_stock_name} ({ticker}) 주가 데이터 가져오는 중..."):
                 # 차트 작성을 위해 2년치 데이터 수집 (여유있게 MA를 그리기 위함)
-                df_chart = yf.download(ticker, period="2y", progress=False)
-                if isinstance(df_chart.columns, pd.MultiIndex):
-                    df_chart.columns = df_chart.columns.droplevel(1)
+                is_kr = ticker.endswith('.KS') or ticker.endswith('.KQ')
+                if is_kr:
+                    code = ticker.split('.')[0]
+                    start_date = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime('%Y-%m-%d')
+                    df_chart = fdr.DataReader(code, start_date)
+                else:
+                    df_chart = yf.download(ticker, period="2y", progress=False)
+                    if isinstance(df_chart.columns, pd.MultiIndex):
+                        df_chart.columns = df_chart.columns.droplevel(1)
+
                 df_chart = df_chart.dropna(subset=['Close', 'High', 'Low', 'Volume'])
+                if df_chart.index.tz is not None:
+                    df_chart.index = df_chart.index.tz_localize(None)
 
                 
             if not df_chart.empty:
@@ -789,7 +838,13 @@ if st.session_state.screened_df is not None:
                     hovermode="x unified"
                 )
                 
-                fig.update_xaxes(gridcolor="#334155", linecolor="#475569", tickfont=dict(color="#cbd5e1"))
+                fig.update_xaxes(
+                    tickformat="%Y-%m-%d",
+                    hoverformat="%Y-%m-%d",
+                    gridcolor="#334155", 
+                    linecolor="#475569", 
+                    tickfont=dict(color="#cbd5e1")
+                )
                 fig.update_yaxes(tickformat=tick_format, row=1, col=1, gridcolor="#334155", linecolor="#475569", tickfont=dict(color="#cbd5e1"))
                 fig.update_yaxes(tickformat=",.0f", row=2, col=1, gridcolor="#334155", linecolor="#475569", tickfont=dict(color="#cbd5e1"))
                 
