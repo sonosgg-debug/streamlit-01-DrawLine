@@ -15,8 +15,9 @@ import io
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+import time
 from tickers import get_krx_tickers
-from screener import run_screener, fit_upper_trendline, screen_single_stock
+from screener import run_screening_task, run_screener, fit_upper_trendline, screen_single_stock
 
 STANDARD_CHART_THEME = {
     'paper_bgcolor': '#1E293B',    # Tailwind Slate-800 (외곽 카드 배경)
@@ -308,9 +309,43 @@ with st.sidebar:
 
     market_choice = st.selectbox(
         "🏛️ 시장 선택",
-        ["KOSPI", "KOSDAQ", "S&P 500", "NASDAQ"],
+        ["KOSPI", "KOSDAQ", "S&P 500", "NASDAQ 100"],
         index=0
     )
+
+    # 한국 시장(KOSPI, KOSDAQ)일 경우 시가총액 기반 대상 범위(Scope) 및 최소 시총 옵션 제공
+    is_korean_market = market_choice in ["KOSPI", "KOSDAQ"]
+    scope_code = "top500"
+    min_marcap_val = 0
+    if is_korean_market:
+        scope_options = {
+            "시가총액 상위 500 종목 [권장]": "top500",
+            "시가총액 상위 300 종목": "top300",
+            "시가총액 상위 1,000 종목": "top1000",
+            "전체 상장 종목": "all"
+        }
+        scope_choice_label = st.selectbox(
+            "📊 대상 범위 (Scope)",
+            options=list(scope_options.keys()),
+            index=0,
+            help="스크리닝할 종목의 시가총액 순위 범위를 지정합니다."
+        )
+        scope_code = scope_options[scope_choice_label]
+
+        marcap_options = {
+            "제한 없음 (전체)": 0,
+            "1,000억원 이상": 1000,
+            "3,000억원 이상 [추천]": 3000,
+            "5,000억원 이상": 5000,
+            "1조원 이상": 10000
+        }
+        marcap_label = st.selectbox(
+            "💰 최소 시가총액",
+            options=list(marcap_options.keys()),
+            index=0,
+            help="설정한 시가총액 이상의 종목만 스크리닝합니다."
+        )
+        min_marcap_val = marcap_options[marcap_label]
 
     st.markdown("<hr style='border: 0; height: 1px; background-color: #334155; margin: 16px 0;'>", unsafe_allow_html=True)
     st.markdown("<div style='font-size: 0.95rem; font-weight: 700; color: #e2e8f0; margin-bottom: 6px;'>🎯 스크리닝 필터 설정</div>", unsafe_allow_html=True)
@@ -333,15 +368,6 @@ with st.sidebar:
         help="돌파 당일 거래량이 직전 20일 평균 거래량 대비 몇 배 이상이어야 하는지 결정합니다. (예: 1.5 = 150%)"
     )
 
-    chunk_size = st.number_input(
-        "데이터 일괄 요청 크기 (Chunk)",
-        min_value=10,
-        max_value=100,
-        value=50,
-        step=10,
-        help="yfinance API로 한 번에 다운로드할 종목 개수입니다. 너무 크게 설정하면 API 에러가 발생할 수 있습니다."
-    )
-
     apply_trend_template = st.toggle(
         "장기 상승 추세 조건(Trend Template) 필터",
         value=True,
@@ -357,16 +383,23 @@ with st.sidebar:
         help="최근 N영업일 이내에 최초 돌파가 일어난 후 추세선 위를 지키고 있는 종목을 허용합니다."
     )
 
+    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
     # 스크리닝 시작 버튼
     start_screening = st.button("🔍 스크리닝 시작", type="primary", use_container_width=True)
+
+    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+    st.info(
+        "💡 **알림**: 멀티스레딩 엔진이 백그라운드에서 실시간 데이터를 수집 및 병렬 연산합니다. "
+        "일반적으로 15~30초 내에 전 종목 스크리닝이 완료됩니다."
+    )
 
 if start_screening:
     market_map = {
         "KOSPI": "KOSPI",
         "KOSDAQ": "KOSDAQ",
         "S&P 500": "S&P 500",
+        "NASDAQ 100": "NASDAQ 100",
         "NASDAQ": "NASDAQ 100",
-        # 하위 호환 매핑
         "코스피 (KOSPI)": "KOSPI",
         "코스닥 (KOSDAQ)": "KOSDAQ",
         "전체 시장 (KOSPI + KOSDAQ)": "ALL",
@@ -375,117 +408,53 @@ if start_screening:
     }
     selected_market = market_map.get(market_choice, "KOSPI")
     
-    with st.spinner("상장 종목 목록을 가져오는 중..."):
+    with st.spinner("상장 종목 유니버스를 로드하는 중..."):
         try:
-            tickers_df = get_krx_tickers(selected_market)
+            tickers_df = get_krx_tickers(selected_market, scope=scope_code, min_marcap_eok=min_marcap_val)
             total_count = len(tickers_df)
-            st.info(f"수집 대상 종목: 총 {total_count}개 (우선주/스팩 필터링 완료)")
+            st.info(f"수집 대상 유니버스: 총 {total_count}개 종목 (노이즈 필터링 완료)")
         except Exception as e:
             st.error(f"종목 목록 수집 실패: {e}")
             tickers_df = pd.DataFrame()
             
     if not tickers_df.empty:
-        progress_bar = st.progress(0)
+        progress_bar = st.progress(0.0)
         status_text = st.empty()
         
-        # 스크리너 구동을 위한 모니터링 래퍼 함수 (Streamlit progress 연동)
-        results = []
-        tickers = tickers_df['ticker'].tolist()
-        name_map = dict(zip(tickers_df['ticker'], tickers_df['회사명']))
-        
-        total_tickers = len(tickers)
-        chunks = [tickers[i:i + chunk_size] for i in range(0, total_tickers, chunk_size)]
-        
-        start_time = datetime.datetime.now()
-        start_date = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime('%Y-%m-%d')
-        
-        for idx, chunk in enumerate(chunks):
-            status_text.text(f"데이터 다운로드 및 분석 중... [{idx+1}/{len(chunks)}] (진행률: {int((idx+1)/len(chunks)*100)}%)")
-            progress_bar.progress((idx + 1) / len(chunks))
-            
-            kr_chunk = [t for t in chunk if t.endswith('.KS') or t.endswith('.KQ')]
-            us_chunk = [t for t in chunk if not (t.endswith('.KS') or t.endswith('.KQ'))]
-            
-            # 1. 한국 주식: FinanceDataReader 멀티스레드 병렬 수집 (네이버 증권 공식 시세)
-            if kr_chunk:
-                def fetch_kr_stock(t):
-                    code = t.split('.')[0]
-                    try:
-                        df = fdr.DataReader(code, start_date)
-                        if df is not None and not df.empty:
-                            df = df.dropna(subset=['Close', 'High', 'Low', 'Volume'])
-                            if df.index.tz is not None:
-                                df.index = df.index.tz_localize(None)
-                            return t, df
-                    except Exception:
-                        pass
-                    return t, None
+        def update_progress(current, total, name):
+            ratio = min(1.0, current / total) if total > 0 else 0.0
+            progress_bar.progress(ratio)
+            status_text.markdown(f"⏳ **데이터 다운로드 및 추세선 돌파 분석 중...** ({current}/{total}) `{name}`")
 
-                with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(kr_chunk), 20)) as executor:
-                    fetched_kr = list(executor.map(fetch_kr_stock, kr_chunk))
+        start_time = time.time()
+        try:
+            with st.spinner("초고속 멀티스레딩 데이터 수집 및 선형계획법(linprog) 병렬 연산 중..."):
+                df_screened = run_screening_task(
+                    tickers_df=tickers_df,
+                    lookback_period=lookback_period,
+                    vol_ratio_thresh=vol_ratio_thresh,
+                    apply_trend_template=apply_trend_template,
+                    breakout_window=breakout_window,
+                    max_workers=24,
+                    progress_callback=update_progress
+                )
+                elapsed = time.time() - start_time
+                progress_bar.progress(1.0)
+                if df_screened is not None and not df_screened.empty:
+                    status_text.success(f"✅ 스크리닝 완료! ({len(df_screened)}개 종목 발굴, 소요 시간: {elapsed:.1f}초)")
+                else:
+                    status_text.warning(f"⚠️ 조건에 부합하는 종목이 없습니다. (소요 시간: {elapsed:.1f}초)")
+                time.sleep(0.8)
+                progress_bar.empty()
+                status_text.empty()
+        except Exception as e:
+            st.error(f"스크리닝 작업 중 오류 발생: {e}")
+            df_screened = pd.DataFrame()
+            progress_bar.empty()
+            status_text.empty()
 
-                for ticker, df_single in fetched_kr:
-                    if df_single is None or len(df_single) < 200:
-                        continue
-                    try:
-                        res = screen_single_stock(
-                            ticker, 
-                            name_map[ticker], 
-                            df_single, 
-                            lookback_period, 
-                            vol_ratio_thresh,
-                            apply_trend_template=apply_trend_template,
-                            breakout_window=breakout_window
-                        )
-                        if res:
-                            results.append(res)
-                    except Exception:
-                        continue
-
-            # 2. 미국 주식: yfinance 일괄 다운로드
-            if us_chunk:
-                try:
-                    data = yf.download(us_chunk, period="2y", group_by="ticker", progress=False)
-                    for ticker in us_chunk:
-                        try:
-                            if isinstance(data.columns, pd.MultiIndex):
-                                ticker_level = 'Ticker' if 'Ticker' in data.columns.names else 1
-                                tickers_in_data = data.columns.get_level_values(ticker_level).unique()
-                                if ticker not in tickers_in_data:
-                                    continue
-                                df_single = data.xs(ticker, level=ticker_level, axis=1).dropna(subset=['Close', 'High', 'Low', 'Volume'])
-                            else:
-                                df_single = data.dropna(subset=['Close', 'High', 'Low', 'Volume'])
-                                
-                            if df_single.index.tz is not None:
-                                df_single.index = df_single.index.tz_localize(None)
-
-                            if len(df_single) < 200:
-                                continue
-                                
-                            res = screen_single_stock(
-                                ticker, 
-                                name_map[ticker], 
-                                df_single, 
-                                lookback_period, 
-                                vol_ratio_thresh,
-                                apply_trend_template=apply_trend_template,
-                                breakout_window=breakout_window
-                            )
-                            if res:
-                                results.append(res)
-                        except Exception:
-                            continue
-                except Exception:
-                    pass
-
-                
-        # 프로그레스 초기화
-        progress_bar.empty()
-        status_text.empty()
-        
-        if results:
-            df_final = pd.DataFrame(results)
+        if df_screened is not None and not df_screened.empty:
+            df_final = df_screened.copy()
             # 출력용 한글 칼럼명 매핑
             df_final_display = df_final.rename(columns={
                 'ticker': '티커',
@@ -510,6 +479,7 @@ if start_screening:
             
         st.session_state.last_run_time = datetime.datetime.now(KST).strftime('%Y-%m-%d %H:%M:%S')
         st.session_state.market_type_used = market_choice
+
 
 # 결과 디스플레이
 if st.session_state.screened_df is not None:

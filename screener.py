@@ -2,11 +2,12 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import FinanceDataReader as fdr
-import datetime
+from datetime import datetime, timezone, timedelta
 from scipy.optimize import linprog
-from scipy.signal import find_peaks
-import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
+
+KST = timezone(timedelta(hours=9))
 
 def fit_upper_trendline(high_prices):
     """
@@ -43,6 +44,7 @@ def fit_upper_trendline(high_prices):
         return trendline, a, b
     else:
         return None, None, None
+
 
 def screen_single_stock(ticker, name, df, lookback_period=40, vol_ratio_thresh=1.5, apply_trend_template=True, breakout_window=2):
     """
@@ -81,11 +83,11 @@ def screen_single_stock(ticker, name, df, lookback_period=40, vol_ratio_thresh=1
         if not (cond1 and cond2 and cond3 and cond4 and cond5 and cond6 and cond7):
             return None
 
-        
     is_breakout = False
     breakout_date = None
     breakout_vol = 0
     breakout_idx_offset = None
+    best_a, best_b = None, None
     
     for i in range(1, breakout_window + 1):
         start_idx = -lookback_period - i
@@ -119,9 +121,10 @@ def screen_single_stock(ticker, name, df, lookback_period=40, vol_ratio_thresh=1
                 breakout_date = df.index[-i].strftime('%Y-%m-%d')
                 breakout_vol = volume.iloc[-i]
                 breakout_idx_offset = i
+                best_a, best_b = a, b
                 break
                 
-    if not is_breakout:
+    if not is_breakout or breakout_idx_offset is None:
         return None
         
     avg_vol_20 = volume.iloc[-20-lookback_period-breakout_idx_offset:-lookback_period-breakout_idx_offset].mean() 
@@ -132,13 +135,9 @@ def screen_single_stock(ticker, name, df, lookback_period=40, vol_ratio_thresh=1
     
     if vol_ratio < vol_ratio_thresh:
         return None
-
         
     breakout_date = df.index[-breakout_idx_offset].strftime('%Y-%m-%d')
 
-
-
-    
     return {
         'ticker': ticker,
         'name': name,
@@ -150,99 +149,192 @@ def screen_single_stock(ticker, name, df, lookback_period=40, vol_ratio_thresh=1
         'low_52w': low_52w,
         'vol_ratio': vol_ratio,
         'breakout_date': breakout_date,
-        'trend_slope': a,
-        'trend_intercept': b
+        'trend_slope': best_a,
+        'trend_intercept': best_b
     }
 
-def run_screener(tickers_df, lookback_period=40, vol_ratio_thresh=1.5, chunk_size=50, max_workers=20):
+
+def _process_single_stock(
+    ticker: str,
+    name: str,
+    start_date: str,
+    lookback_period: int,
+    vol_ratio_thresh: float,
+    apply_trend_template: bool,
+    breakout_window: int,
+    df_cached: pd.DataFrame = None
+):
     """
-    전체 상장종목에 대해 데이터를 수집하고 스크리닝을 수행합니다.
-    - 한국 주식(.KS, .KQ): FinanceDataReader 멀티스레드 병렬 다운로드 (네이버 증권 공식 데이터)
-    - 미국 주식: yfinance 멀티 다운로드
+    단일 종목의 데이터를 수집하고 데이비드 라이언 상단 추세선 돌파 스크리닝을 수행하는 통합 워커 함수.
     """
+    try:
+        if df_cached is not None:
+            df = df_cached
+        else:
+            code = ticker.split('.')[0]
+            df = fdr.DataReader(code, start_date)
+
+        if df is None or len(df) < 220:
+            return None
+
+        # 미체결 당일 더미 행(Volume=0) 방지 처리
+        if len(df) > 1 and df['Volume'].iloc[-1] == 0:
+            df = df.iloc[:-1]
+
+        # 거래정지나 최근 5영업일 거래량 전무 종목 제외
+        recent_vol = df['Volume'].iloc[-5:].sum()
+        if pd.isna(recent_vol) or recent_vol <= 0:
+            return None
+
+        df = df.dropna(subset=['Close', 'High', 'Low', 'Volume'])
+        if df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+
+        if len(df) < 220:
+            return None
+
+        return screen_single_stock(
+            ticker=ticker,
+            name=name,
+            df=df,
+            lookback_period=lookback_period,
+            vol_ratio_thresh=vol_ratio_thresh,
+            apply_trend_template=apply_trend_template,
+            breakout_window=breakout_window
+        )
+    except Exception:
+        return None
+
+
+def run_screening_task(
+    tickers_df: pd.DataFrame,
+    lookback_period: int = 40,
+    vol_ratio_thresh: float = 1.5,
+    apply_trend_template: bool = True,
+    breakout_window: int = 3,
+    max_workers: int = 24,
+    progress_callback = None
+) -> pd.DataFrame:
+    """
+    App-20 초고속 멀티스레딩 엔진 방식을 적용하여
+    전체 유니버스 종목의 데이터 수집과 추세선 돌파 판정을 완전 병렬로 수행합니다.
+    """
+    if tickers_df is None or tickers_df.empty:
+        return pd.DataFrame()
+
+    total_stocks = len(tickers_df)
     results = []
-    tickers = tickers_df['ticker'].tolist()
-    name_map = dict(zip(tickers_df['ticker'], tickers_df['회사명']))
-    
-    total_tickers = len(tickers)
-    chunks = [tickers[i:i + chunk_size] for i in range(0, total_tickers, chunk_size)]
-    
-    print(f"스크리닝 시작: 총 {total_tickers}개 종목, {len(chunks)}개 청크로 나누어 데이터 다운로드 진행")
-    
-    start_time = time.time()
-    start_date = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime('%Y-%m-%d')
-    
-    for idx, chunk in enumerate(chunks):
-        print(f"청크 처리 중 [{idx+1}/{len(chunks)}] (종목수: {len(chunk)})...")
-        kr_chunk = [t for t in chunk if t.endswith('.KS') or t.endswith('.KQ')]
-        us_chunk = [t for t in chunk if not (t.endswith('.KS') or t.endswith('.KQ'))]
-        
-        # 1. 한국 주식: FinanceDataReader 멀티스레드 병렬 수집
-        if kr_chunk:
-            def fetch_kr_stock(t):
-                code = t.split('.')[0]
-                try:
-                    df = fdr.DataReader(code, start_date)
-                    if df is not None and not df.empty:
-                        df = df.dropna(subset=['Close', 'High', 'Low', 'Volume'])
-                        if df.index.tz is not None:
-                            df.index = df.index.tz_localize(None)
-                        return t, df
-                except Exception:
-                    pass
-                return t, None
+    completed_count = 0
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(kr_chunk), max_workers)) as executor:
-                fetched_kr = list(executor.map(fetch_kr_stock, kr_chunk))
+    start_date = (datetime.now(KST) - timedelta(days=730)).strftime('%Y-%m-%d')
 
-            for ticker, df_single in fetched_kr:
-                if df_single is None or len(df_single) < 200:
-                    continue
+    kr_mask = tickers_df['ticker'].str.endswith('.KS') | tickers_df['ticker'].str.endswith('.KQ')
+    df_kr = tickers_df[kr_mask].copy()
+    df_us = tickers_df[~kr_mask].copy()
+
+    # 1. 한국 주식: FinanceDataReader 기반 초고속 멀티스레딩 원스톱 수집 & 분석
+    if not df_kr.empty:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_stock = {
+                executor.submit(
+                    _process_single_stock,
+                    row['ticker'],
+                    row['회사명'],
+                    start_date,
+                    lookback_period,
+                    vol_ratio_thresh,
+                    apply_trend_template,
+                    breakout_window
+                ): (row['ticker'], row['회사명'])
+                for _, row in df_kr.iterrows()
+            }
+
+            for future in as_completed(future_to_stock):
+                ticker, name = future_to_stock[future]
+                completed_count += 1
+                if progress_callback:
+                    progress_callback(completed_count, total_stocks, name)
                 try:
-                    res = screen_single_stock(ticker, name_map[ticker], df_single, lookback_period, vol_ratio_thresh)
-                    if res:
+                    res = future.result()
+                    if res is not None:
                         results.append(res)
                 except Exception:
+                    pass
+
+    # 2. 미국 주식: yfinance 일괄 다운로드 후 멀티스레드 병렬 분석
+    if not df_us.empty:
+        us_tickers = df_us['ticker'].tolist()
+        name_map = dict(zip(df_us['ticker'], df_us['회사명']))
+        try:
+            data = yf.download(us_tickers, period="2y", group_by="ticker", progress=False, timeout=20)
+            us_stock_dfs = {}
+            for t in us_tickers:
+                try:
+                    if isinstance(data.columns, pd.MultiIndex):
+                        ticker_level = 'Ticker' if 'Ticker' in data.columns.names else 1
+                        tickers_in_data = data.columns.get_level_values(ticker_level).unique()
+                        if t not in tickers_in_data:
+                            continue
+                        df_single = data.xs(t, level=ticker_level, axis=1).dropna(subset=['Close', 'High', 'Low', 'Volume'])
+                    else:
+                        df_single = data.dropna(subset=['Close', 'High', 'Low', 'Volume'])
+
+                    if df_single.index.tz is not None:
+                        df_single.index = df_single.index.tz_localize(None)
+
+                    if len(df_single) >= 220:
+                        us_stock_dfs[t] = df_single
+                except Exception:
                     continue
 
-        # 2. 미국 주식: yfinance 일괄 다운로드
-        if us_chunk:
-            try:
-                data = yf.download(us_chunk, period="2y", group_by="ticker", progress=False)
-                for ticker in us_chunk:
-                    try:
-                        if isinstance(data.columns, pd.MultiIndex):
-                            ticker_level = 'Ticker' if 'Ticker' in data.columns.names else 1
-                            tickers_in_data = data.columns.get_level_values(ticker_level).unique()
-                            if ticker not in tickers_in_data:
-                                continue
-                            df_single = data.xs(ticker, level=ticker_level, axis=1).dropna(subset=['Close', 'High', 'Low', 'Volume'])
-                        else:
-                            df_single = data.dropna(subset=['Close', 'High', 'Low', 'Volume'])
-                            
-                        if df_single.index.tz is not None:
-                            df_single.index = df_single.index.tz_localize(None)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_us = {
+                    executor.submit(
+                        _process_single_stock,
+                        t,
+                        name_map[t],
+                        start_date,
+                        lookback_period,
+                        vol_ratio_thresh,
+                        apply_trend_template,
+                        breakout_window,
+                        us_stock_dfs[t]
+                    ): (t, name_map[t])
+                    for t in us_stock_dfs
+                }
 
-                        if len(df_single) < 200:
-                            continue
-                            
-                        res = screen_single_stock(ticker, name_map[ticker], df_single, lookback_period, vol_ratio_thresh)
-                        if res:
+                for future in as_completed(future_to_us):
+                    t, name = future_to_us[future]
+                    completed_count += 1
+                    if progress_callback:
+                        progress_callback(completed_count, total_stocks, name)
+                    try:
+                        res = future.result()
+                        if res is not None:
                             results.append(res)
                     except Exception:
-                        continue
-            except Exception as e:
-                print(f"미국 주식 청크 다운로드 실패: {e}")
-            
-        time.sleep(0.1)
-        
-    print(f"스크리닝 완료! 소요 시간: {time.time() - start_time:.2f}초. 탐지된 종목 수: {len(results)}")
-    return pd.DataFrame(results)
+                        pass
+        except Exception as e:
+            print(f"미국 주식 다운로드 중 오류: {e}")
 
-if __name__ == "__main__":
-    from tickers import get_krx_tickers
-    print("스크리너 유닛 테스트 실행")
-    # 샘플 테스트로 50개 종목만 테스트 진행
-    tickers_df = get_krx_tickers('KOSPI').head(50)
-    res_df = run_screener(tickers_df)
-    print(res_df)
+    if not results:
+        return pd.DataFrame()
+
+    df_res = pd.DataFrame(results)
+    # 거래량 비율 기준 내림차순 정렬
+    if 'vol_ratio' in df_res.columns:
+        df_res = df_res.sort_values(by='vol_ratio', ascending=False).reset_index(drop=True)
+
+    return df_res
+
+
+def run_screener(tickers_df, lookback_period=40, vol_ratio_thresh=1.5, chunk_size=50, max_workers=24):
+    """하위 호환성을 위한 래퍼 함수"""
+    return run_screening_task(
+        tickers_df=tickers_df,
+        lookback_period=lookback_period,
+        vol_ratio_thresh=vol_ratio_thresh,
+        apply_trend_template=True,
+        breakout_window=3,
+        max_workers=max_workers
+    )
